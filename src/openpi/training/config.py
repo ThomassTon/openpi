@@ -23,6 +23,7 @@ import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
+import openpi.policies.frankaduo_policy as frankaduo_policy
 import openpi.training.misc.polaris_config as polaris_config
 import openpi.training.misc.roboarena_config as roboarena_config
 import openpi.training.optimizer as _optimizer
@@ -461,6 +462,61 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
             model_transforms=model_transforms,
         )
 
+
+##########################################################################
+##########################################################################
+##########################################################################
+@dataclasses.dataclass(frozen=True)
+class Frank_Duo_EEF(DataConfigFactory):
+    """
+    Example data config for custom DROID dataset in LeRobot format.
+    To convert your custom DROID dataset (<10s of hours) to LeRobot format, see examples/droid/convert_droid_data_to_lerobot.py
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+
+        # print()
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/exterior_image": "observation.images.head_view",
+                        "observation/right_wrist_image": "observation.images.wrist_right_view",
+                        "observation/left_wrist_image": "observation.images.wrist_left_view",
+                        "observation/eef_position": "observation.state",
+                        # "observation/gripper_position": "gripper_position",
+                        "actions": 'action',
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        # action_sequence_keys: Sequence[str] = ("eef_actions",)  #  if need to change the action key
+        # We assume joint *velocity* actions, so we should *not* apply an additional delta transform.
+        data_transforms = _transforms.Group(
+            inputs=[frankaduo_policy.FrankaDuo_EEF_Inputs(model_type=model_config.model_type)],
+            outputs=[frankaduo_policy.FrankaDuo_EEF_Outputs()],
+        )
+
+        # if self.action_space == droid_rlds_dataset.DroidActionSpace.JOINT_POSITION:
+        # Data loader returns absolute joint position actions -- convert to delta actions for training.
+        # if not veloctiy:
+        delta_action_mask = _transforms.make_bool_mask(3, -4, 2, -7)
+        data_transforms = data_transforms.push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],   # DeltaActions_so3
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+
+        model_transforms = ModelTransformFactory()(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            # action_sequence_keys = action_sequence_keys,  #  if need to change the action key
+        )
 
 @dataclasses.dataclass(frozen=True)
 class TrainConfig:
@@ -916,6 +972,55 @@ _CONFIGS = [
         num_train_steps=20_000,
         batch_size=32,
     ),
+
+    #
+    # Franka duo training config with eef 
+    #
+
+    TrainConfig(
+        name="pi05_base_full_finetune_EEF_no_gp",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+        ),
+
+        data=Frank_Duo_EEF(
+            # Replace with your custom DROID LeRobot dataset repo id.
+            # repo_id="your_hf_username/my_droid_dataset",
+            repo_id="dataset_10070_10070_5050_6050", # dataset_7050_7050_5050_7050 # dataset_10070_10070_5050_10050 
+            base_config=DataConfig(prompt_from_task=True),
+            # assets=AssetsConfig(
+            #     # Important: reuse the original DROID norm stats during fine-tuning!
+            #     # assets_dir="gs://openpi-assets/checkpoints/pi05_droid/assets",
+            #     assets_dir="gs://openpi-assets/checkpoints/pi0_base/assets/",
+            #     asset_id="droid",
+            # ),
+        ),
+        # weight_loader=weight_loaders.CheckpointWeightLoader("/home/yuan/VLA/openpi/checkpoints/pi0_base_finetune_EEF/lerobot_absolute_eef_uniform_white_flange_norm_200_ab/47500/params"),
+        num_train_steps=100_000,
+        # The freeze filter defines which parameters should be frozen during training.
+        # We have a convenience function in the model config that returns the default freeze filter
+        # for the given model config for LoRA finetuning. Just make sure it matches the model config
+        # you chose above.
+   
+        # Turn off EMA for LoRA finetuning.
+        batch_size=32,
+        # lr_schedule=_optimizer.CosineDecaySchedule(
+        #     warmup_steps=10_000,
+        #     peak_lr=5e-5,
+        #     decay_steps=1_000_000,
+        #     decay_lr=5e-5,
+        # ),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        # weight_loader=weight_loaders.CheckpointWeightLoader("/home/vault/g109ea/g109ea10/openpi/checkpoints/pi05_base_full_finetune_EEF_no_gp/drawer/40000/params"),
+    ),
+
     #
     # ALOHA Sim configs. This config is used to demonstrate how to train on a simple simulated environment.
     #
