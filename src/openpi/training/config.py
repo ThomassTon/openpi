@@ -493,7 +493,7 @@ class Frank_Duo_EEF(DataConfigFactory):
                 )
             ]
         )
-        # action_sequence_keys: Sequence[str] = ("eef_actions",)  #  if need to change the action key
+        action_sequence_keys: Sequence[str] = ("action",)  #  if need to change the action key
         # We assume joint *velocity* actions, so we should *not* apply an additional delta transform.
         data_transforms = _transforms.Group(
             inputs=[frankaduo_policy.FrankaDuo_EEF_Inputs(model_type=model_config.model_type)],
@@ -516,7 +516,7 @@ class Frank_Duo_EEF(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
-            # action_sequence_keys = action_sequence_keys,  #  if need to change the action key
+            action_sequence_keys = action_sequence_keys,  #  if need to change the action key
         )
 
 @dataclasses.dataclass(frozen=True)
@@ -987,7 +987,7 @@ _CONFIGS = [
         data=Frank_Duo_EEF(
             # Replace with your custom DROID LeRobot dataset repo id.
             # repo_id="your_hf_username/my_droid_dataset",
-            repo_id="dataset_10070_10070_5050_6050", # dataset_7050_7050_5050_7050 # dataset_10070_10070_5050_10050 
+            repo_id="Franka_duo_Tasks", # dataset_7050_7050_5050_7050 # dataset_10070_10070_5050_10050 
             base_config=DataConfig(prompt_from_task=True),
             # assets=AssetsConfig(
             #     # Important: reuse the original DROID norm stats during fine-tuning!
